@@ -2,170 +2,179 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use App\Models\Product;
-use App\Models\User;
 use App\Models\Category;
+use App\Models\Brand;
 use App\Models\ProductDetail;
+use App\Models\Unit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB; 
 
-class ProductController extends CrudController
+class ProductController extends Controller
 {
-    protected $crudModel = Product::class;
-    protected $validationUpdate = [
-        'name' => '',
-        'item_code' => '',
-        'unit_id' => '',
-        'stock_quantitiy_alert' => '',
-        'category_id' => '',
-        'brand_id' => '',
-        'opening_stock' => '',
-        'current_stock' => '',
-        'opening_stock_date' => '',
-        'purchase_price' => '',
-        'purchase_tax_type' => '',
-        'sales_price' => '',
-        'sales_tax_type' => '',
-        'wholesale_price' => '',
-        'description' => '',
-    ];
-    protected $validationStore = [
-        'name' => '',
-        'item_code' => '',
-        'unit_id' => '',
-        'stock_quantitiy_alert' => '',
-        'category_id' => '',
-        'brand_id' => '',
-        'opening_stock' => '',
-        'current_stock' => '',
-        'opening_stock_date' => '',
-        'purchase_price' => '',
-        'purchase_tax_type' => '',
-        'sales_price' => '',
-        'sales_tax_type' => '',
-        'wholesale_price' => '',
-        'description' => '',
-    ];
-
-    protected $photoKey = [ 'photo' => 'required'];
-    protected $detailKey = [ 'product_id','warehouse_id','current_stock','mrp','purchase_price','sales_price','tax_id','purchase_tax_type','sales_tax_type',
-        'stock_quantitiy_alert','opening_stock','opening_stock_date','wholesale_price','wholesale_quantity','status'];
-
-    protected $relation = [ 'unit','category','detail','brand'];
-
-    public function index($id)
+    /**
+     * Menampilkan daftar produk milik perusahaan user yang login.
+     */
+    public function index(Request $request)
     {
-        //
-//        $user = $this->crudModel::findOrFail($id);
-//
-//        $userAll =  $this->crudModel::where('warehouse_id',$user->warehouse_id)->get();
-//
-//        return response()->json(['message' => 'success','data' => $userAll], 200);
+        $request->validate([
+            'search' => 'nullable|string',
+        ]);
+
+        $user = $request->user();
+
+        // Query hanya mengambil produk milik perusahaan user yang login
+        $query = Product::with(['category', 'brand', 'unit', 'details' => function($q) use ($user) {
+            // Sertakan detail HANYA dari warehouse user saat ini
+            $q->where('warehouse_id', $user->warehouse_id);
+        }])->where('company_id', $user->company_id);
+
+        if ($request->filled('search')) {
+            $query->where('name', 'like', '%' . $request->search . '%');
+        }
+
+        $products = $query->latest()->paginate(15);
+
+        return response()->json(['success' => true, 'data' => $products]);
     }
 
     /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
+     * Menyimpan produk baru.
      */
     public function store(Request $request)
     {
-        $user = User::where('email',$request->email)->first();
+        $validatedData = $request->validate([
+            'name' => 'required|string|max:255',
+            'item_code' => ['required', 'string', Rule::unique('products')->where('company_id', $request->user()->company_id)],
+            'unit_id' => 'required|integer|exists:units,id',
+            'category_id' => 'required|integer|exists:categories,id',
+            'brand_id' => 'nullable|integer|exists:brands,id',
+            'purchase_price' => 'required|numeric|min:0',
+            'sales_price' => 'required|numeric|min:0',
+            'current_stock' => 'required|integer|min:0',
+        ]);
 
-        $validateJson = [];
-        $mergedValidate = array_merge($this->validationStoreJson,$this->validationStore);
-        foreach ($mergedValidate as $key=>$dataJsonMap){
-            if(is_array($dataJsonMap)){
-                $validateJson =  array_merge((array) $validateJson, (array) $dataJsonMap);
-            }else{
-                $validateJson[$key]= $dataJsonMap;
-            }
-        }
-        //todo add
-        //define validation rules
-        $validator = Validator::make($request->all(),$validateJson);
+        try {
+            DB::beginTransaction();
+            $user = $request->user();
 
-        //check if validation fails
-        if ($validator->fails()) {
-            // return response()->json($validator->errors(), 422);
-        }
-        //MAPPING array
-        $inputField = array();
-        $inputFieldDetail = array();
+            $product = Product::create([
+                'name' => $validatedData['name'],
+                'item_code' => $validatedData['item_code'],
+                'unit_id' => $validatedData['unit_id'],
+                'category_id' => $validatedData['category_id'],
+                'brand_id' => $validatedData['brand_id'] ?? null,
+                'company_id' => $user->company_id, // <-- Diaktifkan
+            ]);
 
-        if ($request->hasFile('photo')) {
-
-            //upload image
-            $image = $request->file('photo');
-            $image->storeAs('public/doctors', $image->hashName());
-
-
-        }
-
-        foreach ($this->validationStore as $key=>$dataValidate){
-            if ($key == 'category_id') {
-                $detailCategory= Category::findOrFail($request[$key]);
-                $inputField['slug'] = $detailCategory->slug;
-                $inputField['barcode_symbology'] = $request->item_code;
-                $inputField['category_id'] = $request[$key];
-            }
-            else if ($request->hasFile('photo') && $key == 'photo') {
-                $image = $request->file('photo');
-                $image->storeAs('public/doctors', $image->hashName());
-
-                $inputField[$key] = env('DIGITALOCEAN_SPACES_ENDPOINT').'/'.'public/doctors/'.$image->hashName();
-            }elseif(in_array($request[$key],$this->detailKey)){
-                $inputFieldDetail[$key] = $request[$key];
-            }else{
-                $inputField[$key] = $request[$key];
-            }
-
-        }
-        foreach ($this->detailKey as $key=>$dataValidate){
-            $inputFieldDetail[$dataValidate] = $request[$dataValidate];
-        }
-        $inputFieldDetail['warehouse_id']  = $user->warehouse_id;
-        $inputFieldDetail['status']  = (int)$request->current_stock > 0 ? 'in_stock' : 'out_of_stock';
-        $inputField['warehouse_id'] =  $user->warehouse_id;
-        $inputField['company_id'] =  $user->company_id;
-        $inputField['user_id'] =  $user->id;
-
-        foreach ($this->validationStoreJson as $key=>$dataJson){
-            if(is_array($dataJson)){
-                foreach ($dataJson as $key2=>$dataJson2){
-                    if ($request->hasFile('photo') && $key2 == 'photo') {
-                        $image = $request->file('photo');
-                        $image->storeAs('public/doctors', $image->hashName());
-                        $inputField[$key][$key2] = env('DIGITALOCEAN_SPACES_ENDPOINT').'/'.'public/doctors/'.$image->hashName();
-                    }else{
-                        $inputField[$key][$key2]=$request[$key2];
-                    }
-
-                }
-            }
+            ProductDetail::create([
+                'product_id' => $product->id,
+                'warehouse_id' => $user->warehouse_id, // <-- Diaktifkan
+                'purchase_price' => $validatedData['purchase_price'],
+                'sales_price' => $validatedData['sales_price'],
+                'current_stock' => $validatedData['current_stock'],
+                'status' => $validatedData['current_stock'] > 0 ? 'in_stock' : 'out_of_stock',
+            ]);
+            
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Failed to create product.', 'error' => $e->getMessage()], 500);
         }
 
-        $model = $this->crudModel::create($inputField);
-        $detailProduct =  ProductDetail::where('product_id',$model->id)->first();
-        if(isset($detailProduct)){
-            $detailProduct->update($inputFieldDetail);
-        }else{
-            $inputFieldDetail['status']  = 'in_stock';
-            // $inputFieldDetail['current_stock']  = $request->stock;
-            $inputFieldDetail['product_id']  = $model->id;
-            $detailProduct =  ProductDetail::create($inputFieldDetail);
-        }
-
-        //check if image is not empty
-//        }
-        return $model;
+        return response()->json(['success' => true, 'message' => 'Product created', 'data' => $product], 201);
     }
 
     /**
-     * Display the specified resource.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
+     * Menampilkan detail satu produk.
      */
+    public function show(Product $product, Request $request)
+    {
+        if ($product->company_id !== $request->user()->company_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
 
+        $product->load(['category', 'brand', 'unit', 'details']);
+        return response()->json(['success' => true, 'data' => $product]);
+    }
+
+    /**
+     * Memperbarui data produk.
+     */
+    public function update(Request $request, Product $product)
+    {
+        // Keamanan: Pastikan user hanya bisa mengedit produk di perusahaannya
+        if ($product->company_id !== $request->user()->company_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $validatedData = $request->validate([
+            'name' => 'required|string|max:255',
+            'unit_id' => 'required|integer|exists:units,id',
+            'category_id' => 'required|integer|exists:categories,id',
+            
+            'purchase_price' => 'required|numeric|min:0',
+            'sales_price' => 'required|numeric|min:0',
+        ]);
+        
+        try {
+            DB::beginTransaction();
+
+            $product->update([
+                'name' => $validatedData['name'],
+                'unit_id' => $validatedData['unit_id'],
+                'category_id' => $validatedData['category_id'],
+            ]);
+
+            $productDetail = $product->details()->where('warehouse_id', $request->user()->warehouse_id)->first();
+            if ($productDetail) {
+                $productDetail->update([
+                    'purchase_price' => $validatedData['purchase_price'],
+                    'sales_price' => $validatedData['sales_price'],
+                ]);
+            }
+            
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Failed to update product.'], 500);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Product updated successfully', 'data' => $product]);
+    }
+
+    /**
+     * Menghapus produk.
+     */
+    public function destroy(Product $product)
+    {
+        if ($product->photo) {
+            Storage::disk('public')->delete($product->photo);
+        }
+        
+        $product->delete();
+
+        return response()->json(['success' => true, 'message' => 'Product deleted successfully']);
+    }
+
+
+    public function findUnits(Request $request)
+    {
+        $units = Unit::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
+        return response()->json($units);
+    }
+    
+    public function findCategories(Request $request)
+    {
+        $categories = Category::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
+        return response()->json($categories);
+    }
+    
+    public function findBrands(Request $request)
+    {
+        $brands = Brand::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
+        return response()->json($brands);
+    }
 }

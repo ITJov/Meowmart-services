@@ -2,138 +2,100 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Controller; 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
-
-class CrudController extends Controller
+class CrudController extends Controller 
 {
-    protected $crudModel;
-    protected $validationStore = array();
-    protected $validationUpdateJson = array();
-    protected $validationUpdate = array();
-    protected $validationStoreJson = array();
+    protected $model;
+    protected $validationStore = [];
+    protected $validationUpdate = [];
 
-
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function index(Request $request)
+    public function sendResponse($result, $message)
     {
-
-        $data = $this->crudModel::paginate(25);
-        if ($data) {
-            return $this->sendResponse($data, 'Data retrieved successfully.');
-        }
-        return $this->sendError('Data Not found.',[],200);
+        return response()->json([
+            'success' => true,
+            'data'    => $result,
+            'message' => $message,
+        ], 200);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
+    public function sendError($error, $errorMessages = [], $code = 404)
+    {
+        return response()->json([
+            'success' => false,
+            'message' => $error,
+            'data' => $errorMessages,
+        ], $code);
+    }
+    
+    public function index(Request $request)
+    {
+        $query = $this->model::query();
 
-     public function create(Request $request)
-     {
-        return $this->sendResponse(null, 'Create method placeholder.');
-     }
+        if ($request->has('search')) {
+            $query->search($request->search);
+        }
+        
+        $data = $query->latest()->paginate($request->per_page ?? 25);
+        
+        return $this->sendResponse($data, 'Data retrieved successfully.');
+    }
 
-     public function store(Request $request)
+    public function store(Request $request)
     {
         $validator = Validator::make($request->all(), $this->validationStore);
 
         if ($validator->fails()) {
-            return $this->sendError($validator->errors()->first(), [], 400);
+            return $this->sendError('Validation Error.', $validator->errors(), 422);
         }
 
-        $data = $request->except($this->validationStoreJson);
-
-        foreach ($this->validationStoreJson as $field) {
-            $data[$field] = json_encode($request->input($field));
-        }
-
-        $model = ($this->crudModel)::create($data);
+        $model = $this->model::create($request->all());
 
         return $this->sendResponse($model, 'Data created successfully.');
     }
-public function update(Request $request, $id)
+
+    public function show($id)
     {
+        $model = $this->model::find($id);
 
-        $model = ($this->crudModel)::findOrFail($id);
+        if (is_null($model)) {
+            return $this->sendError('Data not found.');
+        }
 
-        $validateJson = array_merge($this->validationUpdate, ...array_values($this->validationUpdateJson));
-        $validator = Validator::make($request->all(), $validateJson);
+        return $this->sendResponse($model, 'Data retrieved successfully.');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $model = $this->model::find($id);
+
+        if (is_null($model)) {
+            return $this->sendError('Data not found.');
+        }
+
+        $validator = Validator::make($request->all(), $this->validationUpdate);
 
         if ($validator->fails()) {
-            return $this->sendError($validator->errors()->first(), [], 422);
+            return $this->sendError('Validation Error.', $validator->errors(), 422);
         }
 
-        $input = [];
-        foreach ($this->validationUpdate as $key => $rule) {
-            $input[$key] = $request[$key];
-        }
-
-        foreach ($this->validationUpdateJson as $key => $jsonFields) {
-            $input[$key] = [];
-            foreach ($jsonFields as $jsonKey => $_) {
-                $input[$key][$jsonKey] = $request[$jsonKey];
-            }
-        }
-
-        $model->update($input);
+        $model->update($request->all());
 
         return $this->sendResponse($model, 'Data updated successfully.');
     }
 
     public function destroy($id)
     {
-        $model = ($this->crudModel)::findOrFail($id);
+        $model = $this->model::find($id);
+
+        if (is_null($model)) {
+            return $this->sendError('Data not found.');
+        }
+        
         $model->delete();
 
         return $this->sendResponse(null, 'Data deleted successfully.');
     }
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
-    
-public function datatable(Request $request)
-    {
-        $columns = $request->input('columns', []);
-        $search = $request->input('search.value');
-        $orderColumn = $columns[$request->input('order.0.column')]['data'] ?? 'id';
-        $orderDir = $request->input('order.0.dir', 'asc');
-
-        $query = ($this->crudModel)::query();
-
-        if (!empty($search)) {
-            $query->where(function($q) use ($columns, $search) {
-                foreach ($columns as $col) {
-                    $q->orWhere($col['data'], 'like', "%{$search}%");
-                }
-            });
-        }
-
-        $totalData = ($this->crudModel)::count();
-        $totalFiltered = $query->count();
-
-        $data = $query->offset($request->input('start'))
-                     ->limit($request->input('length'))
-                     ->orderBy($orderColumn, $orderDir)
-                     ->get();
-
-        return response()->json([
-            "draw" => intval($request->input('draw')),
-            "recordsTotal" => $totalData,
-            "recordsFiltered" => $totalFiltered,
-            "data" => $data
-        ]);
-    }
-
 }
