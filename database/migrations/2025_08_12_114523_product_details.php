@@ -19,7 +19,7 @@ return new class extends Migration
             $table->decimal('sales_price', 15, 2)->default(0);
             $table->integer('current_stock')->default(0);
             $table->integer('stock_alert')->nullable();
-            $table->string('status')->default('in_stock'); // in_stock, out_of_stock
+            $table->string('status')->default('in_stock'); 
             $table->softDeletes();
             $table->timestamps();
         });

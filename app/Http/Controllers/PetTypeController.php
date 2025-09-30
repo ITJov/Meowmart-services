@@ -14,7 +14,7 @@ class PetTypeController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = PetType::query()->where('company_id', $user->company_id);
+        $query = PetType::query()->where('branches_id', $user->branches_id);
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
@@ -34,12 +34,12 @@ class PetTypeController extends Controller
         $validatedData = $request->validate([
             'name' => [
                 'required', 'string', 'max:255',
-                Rule::unique('pet_types')->where('company_id', $user->company_id)
+                Rule::unique('pet_types')->where('branches_id', $user->branches_id)
             ],
             'description' => 'nullable|string',
         ]);
 
-        $validatedData['company_id'] = $user->company_id;
+        $validatedData['branches_id'] = $user->branches_id;
         $petType = PetType::create($validatedData);
 
         return response()->json([
@@ -55,7 +55,7 @@ class PetTypeController extends Controller
     public function show(PetType $petType)
     {
         // Keamanan: Pastikan user hanya bisa melihat data di perusahaannya
-        if ($petType->company_id !== auth()->user()->company_id) {
+        if ($petType->branches_id !== auth()->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
         
@@ -67,7 +67,7 @@ class PetTypeController extends Controller
      */
     public function update(Request $request, PetType $petType)
     {
-        if ($petType->company_id !== auth()->user()->company_id) {
+        if ($petType->branches_id !== auth()->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -75,7 +75,7 @@ class PetTypeController extends Controller
         $validatedData = $request->validate([
             'name' => [
                 'required', 'string', 'max:255',
-                Rule::unique('pet_types')->where('company_id', $user->company_id)->ignore($petType->id)
+                Rule::unique('pet_types')->where('branches_id', $user->branches_id)->ignore($petType->id)
             ],
             'description' => 'nullable|string',
         ]);
@@ -94,7 +94,7 @@ class PetTypeController extends Controller
      */
     public function destroy(PetType $petType)
     {
-        if ($petType->company_id !== auth()->user()->company_id) {
+        if ($petType->branches_id !== auth()->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 

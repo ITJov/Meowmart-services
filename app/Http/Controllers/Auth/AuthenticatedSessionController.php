@@ -3,36 +3,69 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Auth\LoginRequest;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 
 class AuthenticatedSessionController extends Controller
 {
     /**
      * Handle an incoming authentication request.
      */
-    public function store(LoginRequest $request): Response
+    public function store(Request $request)
     {
-        $request->authenticate();
+        $request->validate([
+            'email' => ['required', 'string', 'email'],
+            'password' => ['required', 'string'],
+        ]);
 
-        $request->session()->regenerate();
+        if (! Auth::attempt($request->only('email', 'password'))) {
+            throw ValidationException::withMessages([
+                'email' => trans('auth.failed'),
+            ]);
+        }
 
-        return response()->noContent();
+        $user = $request->user();
+        if (is_null($user->branches_id)) {
+            $user->tokens()->delete();
+            
+            throw ValidationException::withMessages([
+                'email' => 'User does not have an assigned warehouse. Please contact administrator.',
+            ]);
+        }
+
+        $user->load(['role', 'branches']); 
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Login successful',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role->name,
+                'branches' => $user->branches,
+            ],
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+        ]);
     }
 
+
     /**
-     * Destroy an authenticated session.
+     * Destroy an authenticated session (Logout).
      */
-    public function destroy(Request $request): Response
+    public function destroy(Request $request)
     {
-        Auth::guard('web')->logout();
+        if ($request->user()) {
+            $request->user()->currentAccessToken()->delete();
+        }
 
-        $request->session()->invalidate();
-
-        $request->session()->regenerateToken();
-
-        return response()->noContent();
+        return response()->json([
+            'success' => true,
+            'message' => 'Logout successful'
+        ]);
     }
 }

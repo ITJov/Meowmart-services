@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('units', function (Blueprint $table) {
             $table->id();
-            $table->string('name'); // Contoh: Piece, Kilogram
-            $table->string('short_name'); // Contoh: Pcs, Kg
+            $table->string('name'); 
+            $table->string('short_name');
             $table->timestamps();
         });
     }

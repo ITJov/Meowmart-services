@@ -19,11 +19,13 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'phone',       
+        'address',     
         'role_id',
         'warehouse_id',
-        'company_id', 
-        'user_type',  
+        'branches_id',    
     ];
+
 
     /**
      * Kolom yang disembunyikan.
@@ -59,5 +61,10 @@ class User extends Authenticatable
     public function warehouse()
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function branches()
+    {
+        return $this->belongsTo(Branch::class);
     }
 }

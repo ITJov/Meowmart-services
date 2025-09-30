@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Product extends Model
 {
@@ -18,41 +19,49 @@ class Product extends Model
         'unit_id',
         'category_id',
         'brand_id',
-        'photo', // Dulu 'image', kita standarkan menjadi 'photo'
-        // 'company_id', // Sebaiknya di-handle otomatis
-        // 'user_id',    // Sebaiknya di-handle otomatis
+        'photo', 
     ];
 
     /**
      * Mendefinisikan relasi ke tabel detail produk.
      * Satu produk bisa memiliki banyak detail (satu untuk setiap cabang/warehouse).
      */
-    public function details()
-    {
-        return $this->hasMany(ProductDetail::class);
-    }
-    
+   protected $guarded = ['id'];
+
     /**
-     * Relasi: Produk ini milik satu Kategori.
+     * Secara otomatis membuat atribut 'image_url'.
+     * Frontend bisa langsung memanggil product.image_url
      */
+    protected $appends = ['image_url'];
+
+    public function getImageUrlAttribute()
+    {
+        if ($this->photo) {
+            // Menggunakan Storage::url untuk mendapatkan URL publik yang benar
+            return asset('storage/' . $this->photo);
+        }
+        return null; // atau return URL placeholder default
+    }
+
+    // --- Relasi yang sudah ada ---
+
     public function category()
     {
         return $this->belongsTo(Category::class);
     }
-    
-    /**
-     * Relasi: Produk ini milik satu Merek (Brand).
-     */
+
     public function brand()
     {
         return $this->belongsTo(Brand::class);
     }
-    
-    /**
-     * Relasi: Produk ini memiliki satu Satuan (Unit).
-     */
+
     public function unit()
     {
         return $this->belongsTo(Unit::class);
+    }
+
+    public function details()
+    {
+        return $this->hasMany(ProductDetail::class);
     }
 }

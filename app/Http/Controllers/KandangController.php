@@ -15,15 +15,14 @@ class KandangController extends Controller
      */
     public function index(Request $request)
     {
-        $request->validate([
+            $request->validate([
+            'branches_id' => 'required|integer|exists:branches,id',
             'search' => 'nullable|string',
             'status' => 'nullable|string|in:Aktif,Tidak Aktif,Perbaikan',
         ]);
 
-        $user = $request->user();
-
         $query = Kandang::query()
-                    ->where('warehouse_id', $user->warehouse_id)
+                    ->where('branches_id', $request->branches_id)
                     ->where('flag_deleted', false);
 
         if ($request->filled('search')) {
@@ -36,57 +35,26 @@ class KandangController extends Controller
 
         $kandangs = $query->latest()->paginate(15);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Kandangs retrieved successfully',
-            'data' => $kandangs
-        ]);
+        return response()->json(['data' => $kandangs]);
     }
 
     /**
-     * Menyimpan kandang baru ke database.
+     * Menyimpan kandang baru ke cabang yang ditentukan.
      */
     public function store(Request $request)
     {
-        $user = $request->user();
-
+        // DIUBAH: Tambahkan validasi untuk branches_id
         $validatedData = $request->validate([
-            'kode_room' => [
-                'required',
-                'string',
-                Rule::unique('kandangs')->where(function ($query) use ($user) {
-                    return $query->where('warehouse_id', $user->warehouse_id);
-                }),
-            ],
+            'branches_id' => 'required|integer|exists:branches,id',
+            'kode_room' => ['required', 'string', Rule::unique('kandangs')->where('branches_id', $request->branches_id)],
             'quota' => 'required|integer|min:1',
-            'status' => 'required|string|in:Aktif,Tidak Aktif,Perbaikan',
+            'status' => 'required|string',
         ]);
         
-        $validatedData['warehouse_id'] = $user->warehouse_id;
-        $validatedData['company_id'] = $user->company_id;
-
+        // Data kandang akan dibuat dengan branches_id yang sudah divalidasi
         $kandang = Kandang::create($validatedData);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Kandang created successfully',
-            'data' => $kandang
-        ], 201);
-    }
-
-    /**
-     * Menampilkan detail satu kandang
-     */
-    public function show(Kandang $kandang ,Request $request)
-    {
-        if ($kandang->warehouse_id !== $request->user()->warehouse_id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
-        if ($kandang->flag_deleted) {
-             return response()->json(['success' => false, 'message' => 'Kandang not found'], 404);
-        }
-        return response()->json(['success' => true, 'data' => $kandang]);
+        return response()->json(['success' => true, 'message' => 'Kandang created', 'data' => $kandang], 201);
     }
 
     /**
@@ -94,20 +62,12 @@ class KandangController extends Controller
      */
     public function update(Request $request, Kandang $kandang)
     {
-        // Keamanan: Pastikan user hanya bisa mengedit kandang di warehousenya sendiri
-        if ($kandang->warehouse_id !== $request->user()->warehouse_id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
-        $user = $request->user();
-
         $validatedData = $request->validate([
             'kode_room' => [
                 'required',
                 'string',
-                Rule::unique('kandangs')->where(function ($query) use ($user) {
-                    return $query->where('warehouse_id', $user->warehouse_id);
-                })->ignore($kandang->id),
+                // Pastikan kode unik di dalam cabang yang sama, kecuali untuk data itu sendiri
+                Rule::unique('kandangs')->where('branches_id', $kandang->branches_id)->ignore($kandang->id),
             ],
             'quota' => 'required|integer|min:1',
             'status' => 'required|string|in:Aktif,Tidak Aktif,Perbaikan',

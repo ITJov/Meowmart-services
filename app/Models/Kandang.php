@@ -15,25 +15,16 @@ class Kandang extends Model
         'kode_room',
         'quota',
         'status',
-        'warehouse_id',
-        'company_id',
+        'branches_id',
         'flag_deleted',
     ];
 
     /**
      * Relasi: Kandang ini milik satu Warehouse (cabang).
      */
-    public function warehouse()
+    public function branch()
     {
-        return $this->belongsTo(Warehouse::class);
+        return $this->belongsTo(Branch::class, 'branches_id');
     }
-
-    /**
-     * Relasi: Kandang ini milik satu Company (perusahaan).
-     * Ini berguna untuk query tingkat tinggi.
-     */
-    public function company()
-    {
-        return $this->belongsTo(Company::class);
-    }
+    
 }

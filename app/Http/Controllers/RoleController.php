@@ -2,27 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Role;
+use Spatie\Permission\Models\Role; 
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\Role as SpatieRole; 
 
 class RoleController extends Controller
 {
     /**
      * Menampilkan daftar role milik perusahaan user yang login.
      */
-    public function index(Request $request)
+    // app/Http/Controllers/RoleController.php
+
+public function index(Request $request)
     {
-        $user = $request->user();
-        // Query hanya mengambil role milik perusahaan user tersebut
-        $query = Role::query()->where('company_id', $user->company_id);
-
-        if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
-        }
-
-        $roles = $query->latest()->paginate(15);
+        $roles = Role::all();
 
         return response()->json(['success' => true, 'data' => $roles]);
     }
@@ -32,20 +27,19 @@ class RoleController extends Controller
      */
     public function store(Request $request)
     {
-        $user = $request->user();
+        {
         $validatedData = $request->validate([
-            'name' => [
-                'required', 'string', 'alpha_dash',
-                Rule::unique('roles')->where('company_id', $user->company_id)
-            ],
+            'name' => 'required|string|unique:roles,name|alpha_dash',
             'display_name' => 'required|string|max:255',
-            'description' => 'nullable|string',
         ]);
 
-        $validatedData['company_id'] = $user->company_id;
-        $role = Role::create($validatedData);
+        $role = Role::create([
+            'name' => $validatedData['name'],
+            'display_name' => $validatedData['display_name'],
+        ]);
 
         return response()->json(['success' => true, 'message' => 'Role created', 'data' => $role], 201);
+    }
     }
 
     /**
@@ -53,7 +47,6 @@ class RoleController extends Controller
      */
     public function show(Role $role, Request $request)
     {
-        // Keamanan: Pastikan user hanya bisa melihat role di perusahaannya
         if ($role->company_id !== $request->user()->company_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
@@ -65,7 +58,6 @@ class RoleController extends Controller
      */
     public function update(Request $request, Role $role)
     {
-        // Keamanan: Pastikan user hanya bisa mengedit role di perusahaannya
         if ($role->company_id !== $request->user()->company_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }

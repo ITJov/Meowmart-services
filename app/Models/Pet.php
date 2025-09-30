@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\User;
+use App\Models\Customer;
 use App\Models\PetType;
 
 
@@ -24,8 +24,7 @@ class Pet extends Model
         'color',
         'age',
         'photo',
-        'warehouse_id',
-        'company_id',
+        'branches_id',
     ];
 
     /**
@@ -34,7 +33,7 @@ class Pet extends Model
     public function customer()
     {
         
-        return $this->belongsTo(User::class, 'customer_id');
+        return $this->belongsTo(Customer::class, 'customer_id');
     }
 
     /**
@@ -45,5 +44,11 @@ class Pet extends Model
     {
         // Menghubungkan ke kolom 'pet_type_id' di tabel 'pets'
         return $this->belongsTo(PetType::class, 'pet_type_id');
+    }
+
+    public function branch()
+    {
+        // Nama foreign key 'branches_id' didefinisikan secara eksplisit
+        return $this->belongsTo(Branch::class, 'branches_id');
     }
 }

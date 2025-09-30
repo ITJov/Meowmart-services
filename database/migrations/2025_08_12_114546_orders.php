@@ -19,10 +19,10 @@ return new class extends Migration
             $table->foreignId('user_id')->comment('Staf kasir')->constrained('users');
 
             // --- Rincian Keuangan ---
-            $table->decimal('subtotal', 15, 2); // <-- Kolom baru
-            $table->decimal('total_discount', 15, 2)->default(0); // <-- Kolom baru
-            $table->decimal('total_tax', 15, 2)->default(0); // <-- Kolom baru
-            $table->decimal('total', 15, 2); // Ini adalah total akhir setelah diskon & pajak
+            $table->decimal('subtotal', 15, 2);
+            $table->decimal('total_discount', 15, 2)->default(0);
+            $table->decimal('total_tax', 15, 2)->default(0);
+            $table->decimal('total', 15, 2); 
             
             $table->string('payment_status')->default('unpaid');
             $table->timestamp('order_date');

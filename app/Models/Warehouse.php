@@ -4,43 +4,50 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Session;
 
 class Warehouse extends Model
 {
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
-        'id', 'name', 'email', 'phone', 'city', 'country', 'zipcode',
-        'clinic_detail'
-    ];
-    protected $guarded = ['id', 'users', 'created_at', 'updated_at'];
-
-    // protected $hidden = ['id'];
-
-    protected $casts = [
-        'clinic_detail'=>'json'
+        'branches_id',
+        'name',
+        'address',
+        'phone',
+        'email',
     ];
 
-    public function scopeFilter($query, array $params)
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var array<int, string>
+     */
+    // protected $hidden = [];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
+    // protected $casts = [];
+
+    /**
+     * Mendefinisikan relasi "belongsTo" ke model Branch.
+     * Sebuah Warehouse dimiliki oleh satu Branch.
+     */
+    public function branch()
     {
-//         $currentUser = Session::get('users');
-//         $query = $query->where('company_id',$currentUser->company_id);
-//         if(isset($params['all'])){
-// //            $query = $query->where('company_id',$currentUser->company_id);
-//             // $query = $query->where('clinic_detail', '!=',null);
-//         }else{
-//             // $query = $query->where('clinic_detail', '!=',null);
-//         }
-
-
-        return $query;
+        return $this->belongsTo(Branch::class, 'branches_id');
     }
-    public function scopeSearch($query, array $params)
+
+    public function users()
     {
-
-        // $query = $query->where('name',$params['q']);
-
-        return $query;
+        return $this->hasMany(User::class);
     }
+
 }

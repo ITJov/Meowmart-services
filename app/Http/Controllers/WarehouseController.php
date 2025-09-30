@@ -13,13 +13,17 @@ class WarehouseController extends Controller
      */
     public function index(Request $request)
     {
-        $request->validate([
-            'search' => 'nullable|string',
-        ]);
-
         $user = $request->user();
+        $query = Warehouse::query()->where('branches_id', $user->branches_id);
 
-        $query = Warehouse::query()->where('company_id', $user->company_id);
+        if ($request->boolean('all')) {
+            $warehouses = $query->orderBy('name')->get();
+            return response()->json([
+                'success' => true,
+                'message' => 'All warehouses retrieved successfully',
+                'data' => ['data' => $warehouses] 
+            ]);
+        }
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
@@ -42,13 +46,13 @@ class WarehouseController extends Controller
         $user = $request->user();
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => ['required', 'email', Rule::unique('warehouses')->where('company_id', $user->company_id)],
+            'email' => ['required', 'email', Rule::unique('warehouses')->where('branches_id', $user->branches_id)],
             'phone' => 'required|string',
             'address' => 'required|string',
         ]);
 
-        // Tambahkan company_id secara otomatis dari user yang login
-        $validatedData['company_id'] = $user->company_id;
+        // Tambahkan branches_id secara otomatis dari user yang login
+        $validatedData['branches_id'] = $user->branches_id;
 
         $warehouse = Warehouse::create($validatedData);
 
@@ -65,7 +69,7 @@ class WarehouseController extends Controller
     public function show(Warehouse $warehouse, Request $request)
     {
         // Keamanan: Pastikan user hanya bisa melihat data di perusahaannya
-        if ($warehouse->company_id !== $request->user()->company_id) {
+        if ($warehouse->branches_id !== $request->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -78,14 +82,14 @@ class WarehouseController extends Controller
     public function update(Request $request, Warehouse $warehouse)
     {
         // Keamanan: Pastikan user hanya bisa mengedit data di perusahaannya
-        if ($warehouse->company_id !== $request->user()->company_id) {
+        if ($warehouse->branches_id !== $request->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         $user = $request->user();
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => ['required', 'email', Rule::unique('warehouses')->where('company_id', $user->company_id)->ignore($warehouse->id)],
+            'email' => ['required', 'email', Rule::unique('warehouses')->where('branches_id', $user->branches_id)->ignore($warehouse->id)],
             'phone' => 'required|string',
             'address' => 'required|string',
         ]);
@@ -100,7 +104,7 @@ class WarehouseController extends Controller
      */
     public function destroy(Warehouse $warehouse, Request $request)
     {
-        if ($warehouse->company_id !== $request->user()->company_id) {
+        if ($warehouse->branches_id !== $request->user()->branches_id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 

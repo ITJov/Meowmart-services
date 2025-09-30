@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('warehouses', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('company_id')->constrained('companies')->onDelete('cascade');
+            $table->foreignId('branches_id')->constrained('branches')->onDelete('cascade');
             $table->string('name');
             $table->text('address')->nullable();
             $table->string('phone')->nullable();

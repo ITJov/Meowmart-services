@@ -16,8 +16,8 @@ return new class extends Migration
             $table->foreignId('order_id')->constrained('orders')->onDelete('cascade');
             $table->foreignId('product_id')->constrained('products');
             $table->integer('quantity');
-            $table->decimal('unit_price', 15, 2); // Harga satuan produk
-            $table->decimal('subtotal', 15, 2); // Total (kuantitas * harga satuan)
+            $table->decimal('unit_price', 15, 2); 
+            $table->decimal('subtotal', 15, 2); 
 
             // --- Rincian Keuangan per Item ---
             $table->decimal('discount_amount', 15, 2)->default(0); 

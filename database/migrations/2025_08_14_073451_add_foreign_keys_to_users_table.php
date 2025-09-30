@@ -12,11 +12,10 @@ return new class extends Migration
     // File: ..._add_foreign_keys_to_users_table.php (File baru Anda)
     public function up(): void
     {
-        // Gunakan Schema::table() untuk MEMODIFIKASI, bukan Schema::create()
         Schema::table('users', function (Blueprint $table) {
             $table->foreignId('role_id')->nullable()->constrained('roles')->after('password');
             $table->foreignId('warehouse_id')->nullable()->constrained('warehouses')->after('role_id');
-            $table->foreignId('company_id')->constrained('companies')->after('warehouse_id');
+            $table->foreignId('branches_id')->constrained('branches')->after('warehouse_id');
         });
     }
 

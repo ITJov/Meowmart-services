@@ -13,8 +13,11 @@ return new class extends Migration
     {
         Schema::create('pet_types', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->unique(); // Kucing, Anjing
+            $table->foreignId('branches_id')->constrained('branches'); 
+            $table->string('name'); 
             $table->timestamps();
+
+            $table->unique(['name', 'branches_id']);
         });
     }
 

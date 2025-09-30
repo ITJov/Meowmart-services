@@ -10,47 +10,72 @@ use App\Models\Unit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\DB; 
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response;
 
 class ProductController extends Controller
 {
     /**
-     * Menampilkan daftar produk milik perusahaan user yang login.
+     * Menampilkan daftar produk berdasarkan cabang yang aktif dari request.
      */
     public function index(Request $request)
     {
+        // Validasi tidak berubah, branches_id tetap wajib
         $request->validate([
+            'branches_id' => 'required|integer|exists:branches,id',
             'search' => 'nullable|string',
+            'category_id' => 'nullable',
+            'brand_id' => 'nullable|integer|exists:brands,id', // Tambahkan validasi untuk brand_id
+        ]);
+        
+        $branchesId = $request->branches_id;
+        
+        $query = Product::with([
+            'category', 'brand', 'unit',
+            'details' => function($q) use ($branchesId) {
+                $q->where('branches_id', $branchesId);
+            }
         ]);
 
-        $user = $request->user();
-
-        // Query hanya mengambil produk milik perusahaan user yang login
-        $query = Product::with(['category', 'brand', 'unit', 'details' => function($q) use ($user) {
-            // Sertakan detail HANYA dari warehouse user saat ini
-            $q->where('warehouse_id', $user->warehouse_id);
-        }])->where('company_id', $user->company_id);
+        // DIUBAH: Logika filter produk agar tidak wajib punya detail (untuk dropdown)
+        if (!$request->has('all_products')) {
+            $query->whereHas('details', function($q) use ($branchesId) {
+                $q->where('branches_id', $branchesId);
+            });
+        }
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
         }
+        
+        if ($request->filled('category_id') && $request->category_id !== 'all') {
+            $query->where('category_id', $request->category_id);
+        }
+        
+        // DITAMBAHKAN: Filter berdasarkan brand_id
+        if ($request->filled('brand_id')) {
+            $query->where('brand_id', $request->brand_id);
+        }
 
-        $products = $query->latest()->paginate(15);
+        $products = $query->latest()->paginate($request->input('per_page', 50));
 
-        return response()->json(['success' => true, 'data' => $products]);
+        return response()->json(['data' => $products]);
     }
 
     /**
-     * Menyimpan produk baru.
+     * Menyimpan produk baru beserta detailnya untuk cabang yang ditentukan.
      */
     public function store(Request $request)
     {
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
-            'item_code' => ['required', 'string', Rule::unique('products')->where('company_id', $request->user()->company_id)],
+            'branches_id' => 'required|integer|exists:branches,id',
+            'item_code' => ['nullable', 'string', Rule::unique('products')],
             'unit_id' => 'required|integer|exists:units,id',
             'category_id' => 'required|integer|exists:categories,id',
             'brand_id' => 'nullable|integer|exists:brands,id',
+            'description' => 'nullable|string',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'purchase_price' => 'required|numeric|min:0',
             'sales_price' => 'required|numeric|min:0',
             'current_stock' => 'required|integer|min:0',
@@ -58,20 +83,27 @@ class ProductController extends Controller
 
         try {
             DB::beginTransaction();
-            $user = $request->user();
 
+            $imagePath = null;
+            if ($request->hasFile('photo')) {
+                $imagePath = $request->file('photo')->store('products', 'public');
+            }
+
+            // Data produk bersifat global
             $product = Product::create([
                 'name' => $validatedData['name'],
-                'item_code' => $validatedData['item_code'],
+                'item_code' => $validatedData['item_code'] ?? null,
                 'unit_id' => $validatedData['unit_id'],
                 'category_id' => $validatedData['category_id'],
                 'brand_id' => $validatedData['brand_id'] ?? null,
-                'company_id' => $user->company_id, // <-- Diaktifkan
+                'description' => $validatedData['description'] ?? null,
+                'photo' => $imagePath,
             ]);
 
+            // Data detail produk (stok, harga) spesifik untuk cabang
             ProductDetail::create([
                 'product_id' => $product->id,
-                'warehouse_id' => $user->warehouse_id, // <-- Diaktifkan
+                'branches_id' => $validatedData['branches_id'], // <-- DIUBAH
                 'purchase_price' => $validatedData['purchase_price'],
                 'sales_price' => $validatedData['sales_price'],
                 'current_stock' => $validatedData['current_stock'],
@@ -81,100 +113,133 @@ class ProductController extends Controller
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Failed to create product.', 'error' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'Gagal membuat produk.', 'error' => $e->getMessage()], 500);
         }
 
-        return response()->json(['success' => true, 'message' => 'Product created', 'data' => $product], 201);
+        return response()->json(['success' => true, 'message' => 'Produk berhasil dibuat', 'data' => $product], 201);
     }
 
     /**
-     * Menampilkan detail satu produk.
+     * Menampilkan detail satu produk untuk cabang tertentu.
      */
-    public function show(Product $product, Request $request)
+    public function show(Request $request, Product $product)
     {
-        if ($product->company_id !== $request->user()->company_id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        $request->validate(['branches_id' => 'required|integer|exists:branches,id']);
+        $branchesId = $request->branches_id;
+        
+        if (!$product->details()->where('branches_id', $branchesId)->exists()) {
+            // Tetap kembalikan data produk global, tapi tanpa detail
+            $product->load(['category', 'brand', 'unit']);
+            return response()->json(['success' => true, 'data' => $product]);
         }
 
-        $product->load(['category', 'brand', 'unit', 'details']);
+        // Muat data produk beserta detailnya HANYA untuk cabang yang aktif
+        $product->load(['category', 'brand', 'unit', 'details' => function($q) use ($branchesId) {
+            $q->where('branches_id', $branchesId);
+        }]);
+
         return response()->json(['success' => true, 'data' => $product]);
     }
 
-    /**
-     * Memperbarui data produk.
-     */
     public function update(Request $request, Product $product)
     {
-        // Keamanan: Pastikan user hanya bisa mengedit produk di perusahaannya
-        if ($product->company_id !== $request->user()->company_id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
         $validatedData = $request->validate([
+            // Validasi data global (tabel products)
             'name' => 'required|string|max:255',
+            'item_code' => ['nullable', 'string', Rule::unique('products')->ignore($product->id)],
             'unit_id' => 'required|integer|exists:units,id',
             'category_id' => 'required|integer|exists:categories,id',
-            
+            'brand_id' => 'nullable|integer|exists:brands,id',
+            'description' => 'nullable|string',
+            'photo' => 'nullable|sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
+
+            // Validasi data spesifik cabang (tabel product_details)
+            'branches_id' => 'required|integer|exists:branches,id',
             'purchase_price' => 'required|numeric|min:0',
             'sales_price' => 'required|numeric|min:0',
+            'current_stock' => 'required|integer|min:0',
         ]);
-        
+
         try {
             DB::beginTransaction();
 
+            $imagePath = $product->photo;
+            // Cek jika ada file foto baru yang diupload
+            if ($request->hasFile('photo')) {
+                // Hapus foto lama jika ada
+                if ($product->photo) {
+                    Storage::disk('public')->delete($product->photo);
+                }
+                // Simpan foto baru
+                $imagePath = $request->file('photo')->store('products', 'public');
+            }
+
+            // 1. Update data produk global
             $product->update([
                 'name' => $validatedData['name'],
+                'item_code' => $validatedData['item_code'] ?? null,
                 'unit_id' => $validatedData['unit_id'],
                 'category_id' => $validatedData['category_id'],
+                'brand_id' => $validatedData['brand_id'] ?? null,
+                'description' => $validatedData['description'] ?? null,
+                'photo' => $imagePath,
             ]);
 
-            $productDetail = $product->details()->where('warehouse_id', $request->user()->warehouse_id)->first();
-            if ($productDetail) {
-                $productDetail->update([
+            // 2. Update atau buat detail produk untuk cabang ini
+            ProductDetail::updateOrCreate(
+                [
+                    'product_id' => $product->id,
+                    'branches_id' => $validatedData['branches_id']
+                ],
+                [
                     'purchase_price' => $validatedData['purchase_price'],
                     'sales_price' => $validatedData['sales_price'],
-                ]);
-            }
+                    'current_stock' => $validatedData['current_stock'],
+                    'status' => $validatedData['current_stock'] > 0 ? 'in_stock' : 'out_of_stock',
+                ]
+            );
             
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Failed to update product.'], 500);
+            return response()->json(['success' => false, 'message' => 'Gagal memperbarui produk.', 'error' => $e->getMessage()], 500);
         }
 
-        return response()->json(['success' => true, 'message' => 'Product updated successfully', 'data' => $product]);
+        return response()->json(['success' => true, 'message' => 'Produk berhasil diperbarui', 'data' => $product]);
     }
 
     /**
-     * Menghapus produk.
+     * Menghapus produk secara global dari semua cabang.
      */
     public function destroy(Product $product)
     {
+        // Note: This deletes the product and its details across ALL branches.
+        // Ensure you have onDelete('cascade') in your product_details migration.
         if ($product->photo) {
             Storage::disk('public')->delete($product->photo);
         }
         
         $product->delete();
 
-        return response()->json(['success' => true, 'message' => 'Product deleted successfully']);
+        return response()->json(['success' => true, 'message' => 'Produk berhasil dihapus']);
     }
 
-
+    // Helper functions for dropdowns (usually global, so no changes needed)
     public function findUnits(Request $request)
     {
-        $units = Unit::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
+        $units = Unit::all(['id', 'name']);
         return response()->json($units);
     }
     
     public function findCategories(Request $request)
     {
-        $categories = Category::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
+        $categories = Category::all(['id', 'name']);
         return response()->json($categories);
     }
     
     public function findBrands(Request $request)
     {
-        $brands = Brand::where('name', 'like', '%' . $request->query('term') . '%')->get(['id', 'name']);
-        return response()->json($brands);
+        $brands = Brand::orderBy('name')->get(['id', 'name']);
+        return response()->json(['data' => $brands]);
     }
 }
