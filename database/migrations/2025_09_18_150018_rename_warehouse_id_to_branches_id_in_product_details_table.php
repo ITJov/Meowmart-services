@@ -19,7 +19,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('product_details', function (Blueprint $table) {
-            // Logika untuk mengembalikan jika perlu
             $table->renameColumn('branches_id', 'warehouse_id');
         });
     }

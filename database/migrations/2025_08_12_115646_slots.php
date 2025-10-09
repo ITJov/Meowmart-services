@@ -17,7 +17,7 @@ return new class extends Migration
             $table->date('date');
             $table->time('start_time');
             $table->time('end_time');
-            $table->string('status')->default('available'); // available, booked
+            $table->string('status')->default('available'); 
             $table->timestamps();
 
             $table->unique(['user_id', 'date', 'start_time']); // Mencegah jadwal bentrok

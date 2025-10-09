@@ -13,17 +13,15 @@ return new class extends Migration
     {
         Schema::create('purchases', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('branches_id')->constrained('branches');
-            
-            // DIUBAH: Tidak lagi memerlukan tabel 'suppliers'.
-            // Cukup simpan nama supplier sebagai teks biasa.
+            $table->foreignId('branches_id')->constrained('branches');  
+        
             $table->string('supplier')->nullable(); 
 
             $table->string('invoice_number')->unique();
             $table->date('purchase_date');
-            $table->string('purchase_status'); // Contoh: Dipesan, Dikirim, Selesai
+            $table->string('purchase_status');
             $table->decimal('total_amount', 15, 2);
-            $table->string('payment_status'); // Contoh: Paid, Unpaid
+            $table->string('payment_status');
             $table->text('notes')->nullable();
             $table->timestamps();
         });

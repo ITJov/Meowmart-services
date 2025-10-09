@@ -14,4 +14,8 @@ class Registration extends Model
     public function customer() { return $this->belongsTo(Customer::class); }
     public function pet() { return $this->belongsTo(Pet::class); }
     public function slot() { return $this->belongsTo(Slot::class)->with('user'); } // Selalu ambil data staff
+    public function service()
+    {
+        return $this->belongsTo(Service::class);
+    }
 }

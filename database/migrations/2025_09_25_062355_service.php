@@ -14,13 +14,10 @@ return new class extends Migration
         Schema::create('services', function (Blueprint $table) {
             $table->id();
             
-            // Kolom untuk nama layanan, contoh: "Grooming Sehat"
             $table->string('name');
             
-            // DIUBAH: Kolom ini sekarang terhubung ke tabel 'categories' yang sudah ada
             $table->foreignId('category_id')->constrained('categories');
             
-            // Kolom untuk harga layanan
             $table->decimal('price', 15, 2);
             
             $table->timestamps();

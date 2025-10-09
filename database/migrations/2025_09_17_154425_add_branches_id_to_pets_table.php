@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('pets', function (Blueprint $table) {
             $table->foreignId('branches_id')
-                  ->nullable() // Kita buat nullable agar tidak error pada data lama
+                  ->nullable() 
                   ->constrained('branches')
                   ->after('id');
         });

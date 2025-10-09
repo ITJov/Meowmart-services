@@ -98,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('payment', PaymentController::class);
 
     // registrations
+    Route::get('/registrations/details', [RegistrationController::class, 'getDetailsByIds']); 
     Route::get('/registrations/counts', [RegistrationController::class, 'getCounts']);
     Route::patch('/registrations/{registration}/status', [RegistrationController::class, 'updateStatus']);
     Route::apiResource('registrations', RegistrationController::class);
