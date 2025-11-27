@@ -10,8 +10,7 @@ class Unit extends Model
     use HasFactory;
 
     /**
-     * Menonaktifkan timestamps (created_at, updated_at) karena tidak ada di migrasi Anda.
-     * Jika Anda ingin menggunakannya, tambahkan `$table->timestamps();` di file migrasi.
+
      */
     public $timestamps = true;
 

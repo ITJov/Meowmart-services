@@ -17,48 +17,69 @@ class ProductController extends Controller
 {
     /**
      * Menampilkan daftar produk berdasarkan cabang yang aktif dari request.
+     * Termasuk eager loading untuk details HANYA pada cabang yang diminta.
      */
     public function index(Request $request)
     {
-        // Validasi tidak berubah, branches_id tetap wajib
+        // === BAGIAN UNTUK MENGAMBIL SEMUA PRODUK (DROPDOWN/POS) ===
+        // Endpoint ini harusnya tidak memuat detail stok/harga, hanya ID dan Nama
+        if ($request->boolean('all')) { 
+            $allProducts = Product::with(['unit:id,short_name']) 
+                                  ->orderBy('name')
+                                  ->get(['id', 'name', 'unit_id']);
+            
+            return response()->json($allProducts);
+
+        }
+        
+        // --- LOGIKA UTAMA TABEL PRODUK ---
+        
+        // Validasi HANYA dijalankan jika BUKAN ?all=true
         $request->validate([
-            'branches_id' => 'required|integer|exists:branches,id',
+            'branches_id' => 'required|integer|exists:branches,id', 
             'search' => 'nullable|string',
             'category_id' => 'nullable',
-            'brand_id' => 'nullable|integer|exists:brands,id', // Tambahkan validasi untuk brand_id
+            'brand_id' => 'nullable|integer|exists:brands,id', 
+            'per_page' => 'nullable|integer|min:1|max:100',
         ]);
         
         $branchesId = $request->branches_id;
+        $perPage = $request->input('per_page', 50); 
         
+        // Query produk, eager load relasi DAN detail stok untuk cabang ini
         $query = Product::with([
-            'category', 'brand', 'unit',
+            'category', 
+            'brand', 
+            'unit',
+            // Wajib: Eager load detail stok HANYA dari cabang yang diminta
             'details' => function($q) use ($branchesId) {
                 $q->where('branches_id', $branchesId);
             }
-        ]);
+        ])
+        // Wajib: Filter agar hanya tampilkan produk yang memang sudah terdaftar (memiliki detail) di cabang ini
+        ->whereHas('details', function($q) use ($branchesId) {
+            $q->where('branches_id', $branchesId);
+        });
 
-        // DIUBAH: Logika filter produk agar tidak wajib punya detail (untuk dropdown)
-        if (!$request->has('all_products')) {
-            $query->whereHas('details', function($q) use ($branchesId) {
-                $q->where('branches_id', $branchesId);
-            });
-        }
-
+        // Terapkan filter pencarian
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
         }
         
+        // Terapkan filter kategori
         if ($request->filled('category_id') && $request->category_id !== 'all') {
             $query->where('category_id', $request->category_id);
         }
         
-        // DITAMBAHKAN: Filter berdasarkan brand_id
+        // Terapkan filter merek
         if ($request->filled('brand_id')) {
             $query->where('brand_id', $request->brand_id);
         }
 
-        $products = $query->latest()->paginate($request->input('per_page', 50));
+        // Ambil hasil dengan paginasi
+        $products = $query->latest()->paginate($perPage);
 
+        // Kembalikan dalam format paginasi standar Laravel
         return response()->json(['data' => $products]);
     }
 
@@ -70,8 +91,7 @@ class ProductController extends Controller
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
             'branches_id' => 'required|integer|exists:branches,id',
-            'item_code' => ['nullable', 'string', Rule::unique('products')],
-            'unit_id' => 'required|integer|exists:units,id',
+            'item_code' => 'nullable|string', 
             'category_id' => 'required|integer|exists:categories,id',
             'brand_id' => 'nullable|integer|exists:brands,id',
             'description' => 'nullable|string',
@@ -103,7 +123,7 @@ class ProductController extends Controller
             // Data detail produk (stok, harga) spesifik untuk cabang
             ProductDetail::create([
                 'product_id' => $product->id,
-                'branches_id' => $validatedData['branches_id'], // <-- DIUBAH
+                'branches_id' => $validatedData['branches_id'], 
                 'purchase_price' => $validatedData['purchase_price'],
                 'sales_price' => $validatedData['sales_price'],
                 'current_stock' => $validatedData['current_stock'],
@@ -113,6 +133,10 @@ class ProductController extends Controller
             DB::commit();
         } catch (\Exception $e) {
             DB::rollBack();
+            // Hapus gambar jika transaksi gagal
+            if ($imagePath && Storage::disk('public')->exists($imagePath)) {
+                Storage::disk('public')->delete($imagePath);
+            }
             return response()->json(['success' => false, 'message' => 'Gagal membuat produk.', 'error' => $e->getMessage()], 500);
         }
 
@@ -127,20 +151,23 @@ class ProductController extends Controller
         $request->validate(['branches_id' => 'required|integer|exists:branches,id']);
         $branchesId = $request->branches_id;
         
-        if (!$product->details()->where('branches_id', $branchesId)->exists()) {
-            // Tetap kembalikan data produk global, tapi tanpa detail
-            $product->load(['category', 'brand', 'unit']);
-            return response()->json(['success' => true, 'data' => $product]);
-        }
-
-        // Muat data produk beserta detailnya HANYA untuk cabang yang aktif
-        $product->load(['category', 'brand', 'unit', 'details' => function($q) use ($branchesId) {
+        // Muat data produk global
+        $product->load(['category', 'brand', 'unit']);
+        
+        // Muat detail stok/harga HANYA untuk cabang yang aktif
+        $product->load(['details' => function($q) use ($branchesId) {
             $q->where('branches_id', $branchesId);
         }]);
+        
+        // Jika detail tidak ditemukan, 'details' akan berupa koleksi kosong.
+        // Frontend harus menangani ini dengan aman (sudah dilakukan di TabelProduk.vue).
 
         return response()->json(['success' => true, 'data' => $product]);
     }
 
+    /**
+     * Memperbarui produk global dan detailnya untuk cabang tertentu.
+     */
     public function update(Request $request, Product $product)
     {
         $validatedData = $request->validate([
@@ -157,7 +184,7 @@ class ProductController extends Controller
             'branches_id' => 'required|integer|exists:branches,id',
             'purchase_price' => 'required|numeric|min:0',
             'sales_price' => 'required|numeric|min:0',
-            'current_stock' => 'required|integer|min:0',
+            'current_stock' => 'required|integer|min:0', // Note: Stok tidak boleh diubah di sini jika ada transaksi
         ]);
 
         try {
@@ -214,17 +241,24 @@ class ProductController extends Controller
     public function destroy(Product $product)
     {
         // Note: This deletes the product and its details across ALL branches.
-        // Ensure you have onDelete('cascade') in your product_details migration.
-        if ($product->photo) {
-            Storage::disk('public')->delete($product->photo);
+        // Pastikan Anda menggunakan onDelete('cascade') di migrasi Anda.
+        try {
+            DB::beginTransaction();
+            if ($product->photo) {
+                Storage::disk('public')->delete($product->photo);
+            }
+            
+            $product->delete();
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Gagal menghapus produk.', 'error' => $e->getMessage()], 500);
         }
-        
-        $product->delete();
 
         return response()->json(['success' => true, 'message' => 'Produk berhasil dihapus']);
     }
 
-    // Helper functions for dropdowns (usually global, so no changes needed)
+    // Helper functions for dropdowns (sudah benar)
     public function findUnits(Request $request)
     {
         $units = Unit::all(['id', 'name']);

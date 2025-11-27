@@ -23,11 +23,11 @@ class ProductDetail extends Model
      */
     protected $fillable = [
         'product_id',
-        'warehouse_id',
+        'branches_id',
         'purchase_price',
         'sales_price',
         'current_stock',
-        'stock_quantity_alert', 
+        'stock_alert', 
         'status',
     ];
 

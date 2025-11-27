@@ -46,7 +46,7 @@ class PaymentsOut extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'user_id');    
     }
 
     /**
@@ -54,7 +54,7 @@ class PaymentsOut extends Model
      */
     public function purchase()
     {
-        return $this->belongsTo(Purchase::class);
+        return $this->belongsTo(Purchase::class, 'purchase_id');    
     }
 
     /**

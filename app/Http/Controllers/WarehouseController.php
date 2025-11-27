@@ -14,16 +14,22 @@ class WarehouseController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = Warehouse::query()->where('branches_id', $user->branches_id);
+        
+        // Mulai query tanpa filter cabang
+        $query = Warehouse::query(); 
 
         if ($request->boolean('all')) {
-            $warehouses = $query->orderBy('name')->get();
+            // Untuk dropdown 'all', ambil SEMUA gudang
+            $warehouses = $query->orderBy('name')->get(); 
             return response()->json([
                 'success' => true,
                 'message' => 'All warehouses retrieved successfully',
-                'data' => ['data' => $warehouses] 
+                'data' => $warehouses 
             ]);
         }
+
+        // --- Untuk Paginasi (jika ada halaman list warehouse), BARU filter ---
+        // $query->where('branches_id', $user->branches_id); // Filter hanya untuk list paginasi
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');

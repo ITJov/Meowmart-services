@@ -13,30 +13,30 @@ class PetController extends Controller
      */
     public function index(Request $request)
     {
-        // DIUBAH: Tambahkan validasi untuk branches_id
         $request->validate([
-            'search' => 'nullable|string',
             'branches_id' => 'required|integer|exists:branches,id',
+            'search' => 'nullable|string',
         ]);
-
-        // DIUBAH: Filter query berdasarkan branches_id dari frontend
-        $query = Pet::with(['customer', 'petType'])
-                    ->where('branches_id', $request->branches_id);
+        
+        $query = Pet::with(['customer', 'petType']) 
+                      ->where('branches_id', $request->branches_id);
 
         if ($request->filled('search')) {
-            $query->where(function($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhereHas('customer', function ($subq) use ($request) {
-                      $subq->where('name', 'like', '%' . $request->search . '%');
+            $searchTerm = '%' . $request->search . '%';
+            
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('name', 'like', $searchTerm)
+                  
+                  ->orWhereHas('customer', function($cq) use ($searchTerm) {
+                      $cq->where('name', 'like', $searchTerm)
+                         ->orWhere('phone', 'like', $searchTerm);
                   });
             });
         }
 
-        $pets = $query->latest()->paginate(15);
-
+        $pets = $query->latest()->paginate($request->per_page ?? 10); 
         return response()->json(['data' => $pets]);
     }
-
     /**
      * Menyimpan data hewan peliharaan baru ke cabang yang aktif.
      */
@@ -49,7 +49,7 @@ class PetController extends Controller
             'pet_type_id' => 'required|integer|exists:pet_types,id',
             'breed' => 'nullable|string',
             'color' => 'nullable|string',
-            'age' => 'nullable|string',
+            'date_of_birth' => 'nullable|date', 
             'photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
             'branches_id' => 'required|integer|exists:branches,id',
         ]);
@@ -88,7 +88,7 @@ class PetController extends Controller
             'pet_type_id' => 'required|integer|exists:pet_types,id',
             'breed' => 'nullable|string',
             'color' => 'nullable|string',
-            'age' => 'nullable|string',
+            'date_of_birth' => 'nullable|date', 
             'photo' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
         ]);
 

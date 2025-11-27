@@ -11,20 +11,35 @@ class PetTypeController extends Controller
     /**
      * Menampilkan daftar tipe hewan milik perusahaan yang login.
      */
-    public function index(Request $request)
+    // File: app/Http/Controllers/PetTypeController.php
+
+public function index(Request $request)
     {
-        $user = $request->user();
-        $query = PetType::query()->where('branches_id', $user->branches_id);
+        $query = PetType::query();
+
+        
+        $targetBranchId = $request->input('branches_id', $request->user()->branches_id);
+
+        $query->where(function($q) use ($targetBranchId) {
+            $q->where('branches_id', $targetBranchId)
+            ->orWhereNull('branches_id'); 
+        });
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
         }
 
-        $petTypes = $query->latest()->paginate(15);
-
-        return response()->json(['success' => true, 'data' => $petTypes]);
+        if ($request->boolean('all')) {
+        
+            $petTypes = $query->orderBy('name', 'asc')->get();
+            
+            return response()->json(['success' => true, 'data' => $petTypes]);
+        } else {
+            $petTypes = $query->latest()->paginate($request->input('per_page', 15));
+            
+            return response()->json(['success' => true, 'data' => $petTypes]);
+        }
     }
-
     /**
      * Menyimpan tipe hewan baru.
      */

@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Customer;
 use App\Models\PetType;
+use Carbon\Carbon; // <-- Import Carbon
 
 
 class Pet extends Model
 {
     use HasFactory;
+    protected $appends = ['age_string']; 
 
     /**
      * Kolom yang boleh diisi secara massal.
@@ -22,11 +24,28 @@ class Pet extends Model
         'pet_type_id',
         'breed',
         'color',
-        'age',
+        'date_of_birth',
         'photo',
         'branches_id',
     ];
 
+    public function getAgeStringAttribute()
+    {
+        if (is_null($this->date_of_birth)) {
+            return 'N/A';
+        }
+        
+        $birthDate = Carbon::parse($this->date_of_birth);
+        $diff = $birthDate->diff(Carbon::now());
+
+        if ($diff->y > 0) {
+            return $diff->y . ' Tahun';
+        } elseif ($diff->m > 0) {
+            return $diff->m . ' Bulan';
+        } else {
+            return $diff->d . ' Hari';
+        }
+    }
     /**
      
      */

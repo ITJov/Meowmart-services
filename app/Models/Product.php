@@ -43,8 +43,6 @@ class Product extends Model
         return null; // atau return URL placeholder default
     }
 
-    // --- Relasi yang sudah ada ---
-
     public function category()
     {
         return $this->belongsTo(Category::class);
@@ -63,5 +61,10 @@ class Product extends Model
     public function details()
     {
         return $this->hasMany(ProductDetail::class);
+    }
+
+    public function orderItems()
+    {
+        return $this->hasMany(OrderItem::class);
     }
 }

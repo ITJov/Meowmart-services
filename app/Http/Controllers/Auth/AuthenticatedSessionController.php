@@ -26,17 +26,20 @@ class AuthenticatedSessionController extends Controller
         }
 
         $user = $request->user();
+        
         if (is_null($user->branches_id)) {
             $user->tokens()->delete();
             
             throw ValidationException::withMessages([
-                'email' => 'User does not have an assigned warehouse. Please contact administrator.',
+                'email' => 'User does not have an assigned branch. Please contact administrator.',
             ]);
         }
 
         $user->load(['role', 'branches']); 
-
+        
         $token = $user->createToken('auth_token')->plainTextToken;
+
+        $branch = $user->branches;
 
         return response()->json([
             'success' => true,
@@ -45,8 +48,12 @@ class AuthenticatedSessionController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
-                'role' => $user->role->name,
-                'branches' => $user->branches,
+                'role_name' => $user->role->name ?? 'default', // Menggunakan role_name
+            ],
+            // PENTING: Mengirim data cabang yang diperlukan frontend
+            'active_branch' => [
+                'id' => $user->branches_id,
+                'name' => $branch->name,
             ],
             'access_token' => $token,
             'token_type' => 'Bearer',

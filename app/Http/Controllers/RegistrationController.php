@@ -21,10 +21,11 @@ class RegistrationController extends Controller
         ]);
 
         // DIUBAH: Filter query berdasarkan branches_id
-        $query = Registration::with(['customer', 'pet', 'slot'])
+        $query = Registration::with(['customer', 'pet', 'slot', 'service'])
                              ->where('branches_id', $request->branches_id);
 
         if ($request->filled('status')) {
+            // Kita hanya memfilter berdasarkan status yang ada di tab: Terjadwal, Selesai, Batal
             $query->where('status', $request->status);
         }
 
@@ -36,14 +37,18 @@ class RegistrationController extends Controller
         return response()->json(['data' => $registrations]);
     }
 
+    // ------------------------------------------------------------------
+
     public function store(Request $request)
     {
-        // DIUBAH: Tambahkan validasi untuk branches_id
         $validated = $request->validate([
             'customer_id' => 'required|exists:customers,id',
             'pet_id' => 'required|exists:pets,id',
             'slot_id' => 'nullable|exists:slots,id,status,available',
-            'registration_type' => 'required|string|max:255',
+            
+            'service_id' => 'required|integer|exists:services,id', 
+            'registration_type' => 'required|string|max:255', 
+            
             'status' => 'required|string|max:255',
             'notes' => 'nullable|string',
             'branches_id' => 'required|integer|exists:branches,id',
@@ -54,7 +59,6 @@ class RegistrationController extends Controller
 
             $validated['booking_id'] = 'BOOK-' . strtoupper(Str::random(8));
             
-            // Data registrasi akan otomatis tersimpan dengan branches_id yang tervalidasi
             $registration = Registration::create($validated);
 
             if (!empty($validated['slot_id'])) {
@@ -71,12 +75,16 @@ class RegistrationController extends Controller
         }
     }
 
+    // ------------------------------------------------------------------
+
     public function getCounts(Request $request)
     {
         $request->validate([
             'branches_id' => 'required|integer|exists:branches,id',
         ]);
 
+        // NOTE: Count harus menghitung semua status yang ada di database,
+        // meskipun tab di frontend tidak menampilkannya (misal 'Menunggu Pembayaran').
         $counts = Registration::where('branches_id', $request->branches_id)
             ->select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
@@ -85,10 +93,13 @@ class RegistrationController extends Controller
         return response()->json(['data' => $counts]);
     }
 
+    // ------------------------------------------------------------------
+
     public function updateStatus(Request $request, Registration $registration)
     {
         $validated = $request->validate([
-            'status' => ['required', 'string', Rule::in(['Menunggu Antrian', 'Dalam Tindakan', 'Pembayaran', 'Selesai', 'Batal'])]
+            // PERBAIKAN UTAMA: Hanya status yang visible atau final yang diizinkan dari UI ini.
+            'status' => ['required', 'string', Rule::in(['Selesai', 'Batal'])]
         ]);
 
         $registration->update(['status' => $validated['status']]);
@@ -96,40 +107,36 @@ class RegistrationController extends Controller
         return response()->json(['message' => 'Status registrasi berhasil diperbarui.', 'data' => $registration]);
     }
 
+    // ------------------------------------------------------------------
+
     public function getDetailsByIds(Request $request)
     {
-        // 1. Validasi request untuk memastikan parameter 'ids' ada
         $request->validate([
             'ids' => 'required|string',
         ]);
 
         try {
-            // 2. Decode string JSON dari parameter 'ids' menjadi array
             $registrationIds = json_decode($request->query('ids'));
 
-            // 3. Pastikan hasil decode adalah array dan tidak kosong
             if (!is_array($registrationIds) || empty($registrationIds)) {
-                return response()->json(['message' => 'Invalid or empty IDs provided.'], 400); // Bad Request
+                return response()->json(['message' => 'Invalid or empty IDs provided.'], 400); 
             }
 
-            // 4. Ambil data registrasi menggunakan 'whereIn' dan eager load relasi 'service'
-            $registrations = Registration::with('service') // Eager load untuk efisiensi
+            $registrations = Registration::with('service')
                 ->whereIn('id', $registrationIds)
                 ->get();
 
-            // 5. Kembalikan data dalam format JSON yang standar
             return response()->json([
                 'success' => true,
                 'data' => $registrations,
             ]);
 
         } catch (\Exception $e) {
-            // 6. Tangani jika terjadi error (misal: JSON tidak valid)
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while fetching registration details.',
                 'error' => $e->getMessage()
-            ], 500); // Internal Server Error
+            ], 500);
         }
     }
 

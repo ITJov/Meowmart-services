@@ -117,5 +117,114 @@ class PurchaseController extends Controller
             ], 500);
         }
     }
+
+    public function show(Purchase $purchase)
+    {
+        // Memuat semua item terkait untuk ditampilkan di form edit
+        $purchase->load('items'); 
+        return response()->json(['data' => $purchase]);
+    }
+    
+    /**
+     * Memperbarui data pengadaan produk dan menyesuaikan stok.
+     */
+    public function update(Request $request, Purchase $purchase)
+    {
+        $validatedData = $request->validate([
+            'branches_id' => 'required|integer|exists:branches,id',
+            'supplier' => 'required|string|max:255',
+            'purchase_date' => 'required|date',
+            'purchase_status' => 'required|string', 
+            'payment_status' => 'required|string', 
+            'notes' => 'nullable|string',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.unit_price' => 'required|numeric|min:0', // Harga beli
+        ]);
+
+        DB::beginTransaction();
+        try {
+            // 1. Hitung ulang total pembelian
+            $newTotalAmount = collect($validatedData['items'])->sum(function ($item) {
+                return $item['quantity'] * $item['unit_price'];
+            });
+
+            // 2. Logika Penyesuaian Stok LAMA: Hanya kurangi stok jika status LAMA sudah "Selesai" atau "Diterima"
+            if (in_array($purchase->purchase_status, ['Selesai', 'Diterima'])) {
+                foreach ($purchase->items as $oldItem) {
+                    $productDetail = ProductDetail::where('product_id', $oldItem->product_id)
+                                                ->where('branches_id', $purchase->branches_id)
+                                                ->lockForUpdate()
+                                                ->first();
+                    if ($productDetail) {
+                        // KURANGI stok lama (membatalkan transaksi lama)
+                        $productDetail->decrement('current_stock', $oldItem->quantity);
+                    }
+                }
+            }
+
+            // 3. Hapus Item lama dan update Purchase
+            $purchase->items()->delete();
+            
+            $purchase->update([
+                'supplier' => $validatedData['supplier'],
+                'purchase_date' => $validatedData['purchase_date'],
+                'purchase_status' => $validatedData['purchase_status'],
+                'total_amount' => $newTotalAmount,
+                'payment_status' => $validatedData['payment_status'],
+                'notes' => $validatedData['notes'] ?? null,
+            ]);
+
+            // 4. Simpan Item BARU dan terapkan stok BARU
+            if (in_array($validatedData['purchase_status'], ['Selesai', 'Diterima'])) {
+                 foreach ($validatedData['items'] as $itemData) {
+                    // Tambah Item Baru
+                    $purchase->items()->create([
+                        'product_id' => $itemData['product_id'],
+                        'quantity' => $itemData['quantity'],
+                        'unit_price' => $itemData['unit_price'],
+                        'subtotal' => $itemData['quantity'] * $itemData['unit_price'],
+                    ]);
+
+                    // Tambah stok BARU
+                    $productDetail = ProductDetail::firstOrCreate(
+                        [
+                            'product_id' => $itemData['product_id'],
+                            'branches_id' => $validatedData['branches_id']
+                        ],
+                        ['current_stock' => 0] // Tambahkan field default yang diperlukan
+                    );
+                    $productDetail->increment('current_stock', $itemData['quantity']);
+                }
+            } else {
+                // Jika status baru BUKAN 'Selesai'/'Diterima', tetap simpan item baru tanpa menambah stok
+                foreach ($validatedData['items'] as $itemData) {
+                    $purchase->items()->create([
+                        'product_id' => $itemData['product_id'],
+                        'quantity' => $itemData['quantity'],
+                        'unit_price' => $itemData['unit_price'],
+                        'subtotal' => $itemData['quantity'] * $itemData['unit_price'],
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true, 
+                'message' => 'Pengadaan produk berhasil diperbarui.', 
+                'data' => $purchase
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false, 
+                'message' => 'Gagal memperbarui pengadaan produk.', 
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers; 
 
 use App\Http\Controllers\Controller;
+use App\Models\Product;
 use App\Models\Unit;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule; // <-- Import Rule untuk validasi update
@@ -15,21 +16,27 @@ class UnitController extends Controller
      */
     public function index(Request $request)
     {
+        // Cek apakah parameter 'all=true' diminta
         if ($request->boolean('all')) {
-            $data = Unit::orderBy('name')->get();
-            return response()->json(['message' => 'Success', 'data' => ['data' => $data]]);
+            // Jika ya, ambil SEMUA data unit
+            $units = Unit::orderBy('name')->get(); 
+            
+            // Kembalikan dalam format yang diharapkan frontend { data: [...] }
+            return response()->json([
+                'success' => true,
+                'data' => $units 
+            ]);
+
+        } else {
+            // Jika tidak, lakukan paginasi seperti biasa (jika Anda punya halaman list unit)
+            $perPage = $request->input('per_page', 10);
+            $units = Unit::orderBy('name')->paginate($perPage);
+
+             return response()->json([
+                'success' => true,
+                'data' => $units
+            ]);
         }
-
-        $query = Unit::query();
-
-        if ($request->has('search') && $request->search != "") {
-            $query->where('name', 'LIKE', "%{$request->search}%")
-                  ->orWhere('short_name', 'LIKE', "%{$request->search}%");
-        }
-
-        $data = $query->latest()->paginate($request->input('per_page', 10));
-
-        return response()->json(['message' => 'Success', 'data' => $data]);
     }
 
     /**

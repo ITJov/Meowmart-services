@@ -8,7 +8,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-// DIUBAH: Nama class diubah agar konsisten
 class PaymentsOutController extends Controller
 {
     /**
@@ -68,7 +67,7 @@ class PaymentsOutController extends Controller
     public function show(PaymentsOut $paymentOut)
     {
         // Memuat relasi untuk ditampilkan di halaman detail
-        $paymentOut->load(['user', 'purchase', 'branch']);
+        $paymentOut->load(['user', 'purchase']);
         return response()->json(['data' => $paymentOut]);
     }
 

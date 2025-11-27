@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('breed')->nullable();
             $table->string('color')->nullable();
-            $table->string('age')->nullable();
+            $table->date('date_of_birth')->nullable();
             $table->string('photo')->nullable();
             $table->timestamps();
         });

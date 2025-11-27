@@ -7,58 +7,70 @@ use App\Models\Branch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB; // Tambahkan untuk kemudahan debugging
 
 class CustomerController extends Controller
 {
     /**
      * Menampilkan daftar pelanggan berdasarkan cabang yang aktif.
-     * Mengasumsikan Global Scope sudah diimplementasikan untuk filter otomatis.
      */
     public function index(Request $request)
-{
-    $request->validate([
-        'branches_id' => 'required|integer|exists:branches,id',
-        'search' => 'nullable|string',
-    ]);
-    
-    $query = Customer::query()->where('branches_id', $request->branches_id);
+    {
+        $request->validate([
+            'branches_id' => 'required|integer|exists:branches,id',
+            'search' => 'nullable|string',
+        ]);
+        
+        $query = Customer::query()->where('branches_id', $request->branches_id);
 
-    if ($request->filled('search')) {
-        $query->where(function($q) use ($request) {
-            $q->where('name', 'like', '%' . $request->search . '%')
-              ->orWhere('email', 'like', '%' . $request->search . '%');
-        });
+        if ($request->filled('search')) {
+            $searchTerm = '%' . $request->search . '%';
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('name', 'like', $searchTerm)
+                  ->orWhere('email', 'like', $searchTerm)
+                  ->orWhere('phone', 'like', $searchTerm); // Tambah pencarian via HP
+            });
+        }
+
+        $customers = $query->latest()->paginate(15);
+        
+        return response()->json(['data' => $customers]);
     }
 
-    $customers = $query->latest()->paginate(15);
-    
-    return response()->json(['data' => $customers]);
-}
-
     /**
-     * Menyimpan data pelanggan baru untuk cabang yang aktif.
+     * Menyimpan data pelanggan baru ke cabang yang aktif.
      */
     public function store(Request $request)
     {
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email'],
-            'password' => 'required|string|min:8',
+            
+            // Perbaikan Validasi Email: Cek email unik per cabang, abaikan data ini sendiri
+            'email' => [
+                 'required', 'email', 
+                 Rule::unique('customers')->where('branches_id', $request->branches_id)
+            ],
+            
+            // Password sekarang opsional dari frontend
+            'password' => 'nullable|string|min:8', 
+            
             'phone' => 'nullable|string',
             'address' => 'nullable|string',
             'branches_id' => 'required|integer|exists:branches,id', 
         ]);
         
-        // Pastikan email unik per cabang
-        $request->validate([
-            // DIUBAH: Gunakan 'branches_id' agar konsisten dengan array $validatedData
-            'email' => [Rule::unique('customers')->where('branches_id', $validatedData['branches_id'])],
-        ]);
+        // --- LOGIKA PERBAIKAN PASSWORD ---
+        // Jika password tidak dikirim (atau dikirim tapi kosong dari frontend), 
+        // berikan password default (misal: nomor telepon pelanggan)
+        $passwordToHash = $validatedData['password'] ?? $validatedData['phone'] ?? 'password123';
 
         $customer = Customer::create([
             'name' => $validatedData['name'],
             'email' => $validatedData['email'],
-            'password' => Hash::make($validatedData['password']),
+            // Hash password default jika tidak ada
+            'password' => Hash::make($passwordToHash), 
+            
             'phone' => $validatedData['phone'] ?? null,
             'address' => $validatedData['address'] ?? null,
             'branches_id' => $validatedData['branches_id'], 
@@ -72,7 +84,6 @@ class CustomerController extends Controller
      */
     public function show(Customer $customer)
     {
-        // Asumsi: Global scope atau policy akan membatasi akses ke customer di cabang yang salah
         $customer->load('pets');
         return response()->json(['success' => true, 'data' => $customer]);
     }
@@ -84,7 +95,13 @@ class CustomerController extends Controller
     {
         $validatedData = $request->validate([
             'name' => 'required|string|max:255',
+            
+            // Perbaikan Validasi Email Update: Abaikan ID pelanggan yang sedang di-edit
             'email' => ['required', 'email', Rule::unique('customers')->where('branches_id', $customer->branches_id)->ignore($customer->id)],
+            
+            // Password tidak perlu divalidasi di sini karena frontend tidak mengirimnya kecuali ada perubahan
+            // Jika Anda ingin mengubah password, Anda harus mengirimkan field 'new_password' terpisah.
+            
             'phone' => 'nullable|string',
             'address' => 'nullable|string',
         ]);
