@@ -17,6 +17,7 @@ class Order extends Model
     protected $fillable = [
         'branches_id',
         'customer_id',
+        'registration_id',
         'user_id',
         'invoice_number',
         'subtotal',

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentsOut;
+use App\Models\ProductDetail;
+use App\Models\ProductBatches;
 use App\Models\Purchase;
 use App\Models\Registration;    
 use Illuminate\Http\Request;
@@ -89,21 +91,48 @@ class DashboardController extends Controller
                 'sales' => $sales,
                 'purchases' => $purchases,
             ];
-        }
+            $outOfStockItems = ProductDetail::where('branches_id', $branchId)
+            ->where('current_stock', '<=', 0)
+            ->join('products', 'product_details.product_id', '=', 'products.id')
+            ->select('products.name', 'product_details.current_stock')
+            ->get();
+
+            $lowStockItems = ProductDetail::where('branches_id', $branchId)
+                ->whereBetween('current_stock', [1, 10])
+                ->join('products', 'product_details.product_id', '=', 'products.id')
+                ->select('products.name', 'product_details.current_stock')
+                ->get();
+
+            $nearExpiredItems = ProductBatches::where('branches_id', $branchId)
+                ->where('quantity', '>', 0)
+                ->whereBetween('expiry_date', [now(), now()->addDays(30)])
+                ->join('products', 'product_batches.product_id', '=', 'products.id')
+                ->select('products.name', 'product_batches.expiry_date', 'product_batches.batch_code')
+                ->get();
 
         return response()->json([
             'data' => [
                 'kpi' => [
                     'total_sales' => $totalSales,
                     'total_purchases' => $totalPurchases,
-                    'payments_in' => $paymentsIn,
-                    'payments_out' => $paymentsOut,
+                    'payments_in' => (float)$paymentsIn,
+                    'payments_out' => (float)$paymentsOut,
+                ],
+                'inventory_alerts' => [
+                    'out_of_stock' => $outOfStockItems->count(),
+                    'low_stock' => $lowStockItems->count(),
+                    'near_expired' => $nearExpiredItems->count(),
+                    'details' => [
+                        'out_of_stock_list' => $outOfStockItems,
+                        'low_stock_list' => $lowStockItems,
+                        'near_expired_list' => $nearExpiredItems,
+                    ],
                 ],
                 'top_services' => $topServices,
                 'top_products' => $topProducts,
                 'monthly_report' => $monthlyReport,
             ]
         ]);
-    }
+    }}
 }
 

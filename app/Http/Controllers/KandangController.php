@@ -8,6 +8,8 @@ use App\Models\Registration;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Validation\Rule; 
+use Illuminate\Support\Facades\DB;
+
 
 class KandangController extends Controller
 {
@@ -118,41 +120,50 @@ class KandangController extends Controller
     public function checkAvailability(Request $request)
     {
         $request->validate([
-            'branches_id' => 'required|integer|exists:branches,id',
+            'branches_id' => 'required|integer',
             'start_date' => 'required|date',
-            'end_date' => 'required|date|after:start_date',
+            'end_date' => 'required|date|after:start_date', 
         ]);
         
         $startDate = $request->start_date;
         $endDate = $request->end_date;
+        $branchId = $request->branches_id;
 
-        $totalQuota = Kandang::where('branches_id', $request->branches_id)
-                             ->where('flag_deleted', false)
-                             ->where('status', 'Aktif')
-                             ->sum('quota');
-
-        if ($totalQuota === 0) {
-            return response()->json(['available' => 0, 'message' => 'Tidak ada kandang aktif yang tersedia.'], 200);
-        }
-
-        $bookedCount = Registration::where('branches_id', $request->branches_id)
-            ->where('status', '!=', 'Batal') // Jangan hitung yang batal
-            ->where('status', '!=', 'Selesai') // Jangan hitung yang sudah selesai/check-out
-            
+        // 1. Hitung jumlah kandang yang TERPAKAI (Booked) pada rentang tanggal tersebut
+        $bookedCounts = Registration::where('branches_id', $branchId)
+            ->whereNotIn('status', ['Batal', 'Selesai']) // Pastikan status selesai tidak dihitung
             ->where(function($q) use ($startDate, $endDate) {
-                $q->whereDate('start_date', '<=', $endDate)
-                  ->whereDate('end_date', '>=', $startDate);
+                $q->where('start_date', '<', $endDate)
+                ->where('end_date', '>', $startDate);
             })
-            ->count();
-            
-        $availableQuota = $totalQuota - $bookedCount;
+            ->whereNotNull('kandang_id')
+            ->select('kandang_id', DB::raw('count(*) as booked_qty'))
+            ->groupBy('kandang_id')
+            ->pluck('booked_qty', 'kandang_id');
 
-        return response()->json([
-            'available' => max(0, $availableQuota),
-            'message' => 'Kuota kandang tersedia.',
-            'total_quota' => $totalQuota,
-            'booked_count' => $bookedCount
-        ], status: 200);
+        // 2. Ambil semua kandang AKTIF
+        $allKandangs = Kandang::where('branches_id', $branchId)
+            ->where('flag_deleted', false)
+            ->where('status', 'Aktif')
+            ->get();
+
+        // 3. Filter kandang yang masih punya sisa kuota
+        $availableKandangsList = $allKandangs->map(function ($kandang) use ($bookedCounts) {
+            $booked = $bookedCounts->get($kandang->id, 0); 
+            $sisaKuota = $kandang->quota - $booked;
+
+            if ($sisaKuota > 0) {
+                return [
+                    'id' => $kandang->id,
+                    'name' => $kandang->kode_room . ' (Sisa: ' . $sisaKuota . ')', 
+                    'quota' => $kandang->quota,
+                    'available_qty' => $sisaKuota
+                ];
+            }
+            return null; 
+        })->filter()->values(); 
+
+        return response()->json(['success' => true, 'data' => $availableKandangsList]);
     }
 
         public function getActiveList(Request $request)

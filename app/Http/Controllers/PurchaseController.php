@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Purchase;
 use App\Models\ProductDetail;
+use App\Models\ProductBatches;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -36,87 +37,100 @@ class PurchaseController extends Controller
      * Menyimpan data pengadaan produk baru dan memperbarui stok.
      */
     public function store(Request $request)
-    {
-        $validatedData = $request->validate([
-            'branches_id' => 'required|integer|exists:branches,id',
-            'supplier' => 'required|string|max:255',
-            'purchase_date' => 'required|date',
-            'purchase_status' => 'required|string', // e.g., "Selesai", "Dipesan"
-            'payment_status' => 'required|string', // e.g., "Paid", "Unpaid"
-            'notes' => 'nullable|string',
-            'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer|exists:products,id',
-            'items.*.quantity' => 'required|integer|min:1',
-            'items.*.unit_price' => 'required|numeric|min:0', // Harga beli
+{
+    $validatedData = $request->validate([
+        'branches_id' => 'required|integer|exists:branches,id',
+        'supplier' => 'required|string|max:255',
+        'purchase_date' => 'required|date',
+        'purchase_status' => 'required|string', 
+        'payment_status' => 'required|string', 
+        'notes' => 'nullable|string',
+        'items' => 'required|array|min:1',
+        'items.*.product_id' => 'required|integer|exists:products,id',
+        'items.*.quantity' => 'required|integer|min:1',
+        'items.*.unit_price' => 'required|numeric|min:0',
+        'items.*.expiry_date' => 'required|date', // WAJIB ADA untuk FEFO
+    ]);
+
+    DB::beginTransaction();
+    try {
+        $totalAmount = collect($validatedData['items'])->sum(function ($item) {
+            return $item['quantity'] * $item['unit_price'];
+        });
+
+        // 1. Simpan Header Pembelian
+        $purchase = Purchase::create([
+            'branches_id' => $validatedData['branches_id'],
+            'supplier' => $validatedData['supplier'],
+            'invoice_number' => 'PUR-' . strtoupper(Str::random(10)),
+            'purchase_date' => $validatedData['purchase_date'],
+            'purchase_status' => $validatedData['purchase_status'],
+            'total_amount' => $totalAmount,
+            'payment_status' => $validatedData['payment_status'],
+            'notes' => $validatedData['notes'] ?? null,
         ]);
 
-        DB::beginTransaction();
-        try {
-            // Hitung total pembelian di backend untuk keamanan
-            $totalAmount = collect($validatedData['items'])->sum(function ($item) {
-                return $item['quantity'] * $item['unit_price'];
-            });
-
-            // 1. Buat data Pembelian (Purchase) utama
-            $purchase = Purchase::create([
-                'branches_id' => $validatedData['branches_id'],
-                'supplier' => $validatedData['supplier'],
-                'invoice_number' => 'PUR-' . strtoupper(Str::random(10)), // Generate nomor invoice otomatis
-                'purchase_date' => $validatedData['purchase_date'],
-                'purchase_status' => $validatedData['purchase_status'],
-                'total_amount' => $totalAmount,
-                'payment_status' => $validatedData['payment_status'],
-                'notes' => $validatedData['notes'] ?? null,
+        foreach ($validatedData['items'] as $itemData) {
+            // 2. Simpan Rincian Item Pembelian (History Transaksi)
+            $purchase->items()->create([
+                'product_id' => $itemData['product_id'],
+                'quantity' => $itemData['quantity'],
+                'unit_price' => $itemData['unit_price'],
+                'subtotal' => $itemData['quantity'] * $itemData['unit_price'],
             ]);
 
-            // 2. Simpan setiap item pembelian dan perbarui stok
-            foreach ($validatedData['items'] as $itemData) {
-                // Buat rincian item pembelian
-                $purchase->items()->create([
-                    'product_id' => $itemData['product_id'],
-                    'quantity' => $itemData['quantity'],
-                    'unit_price' => $itemData['unit_price'],
-                    'subtotal' => $itemData['quantity'] * $itemData['unit_price'],
+            // HANYA TAMBAH STOK JIKA STATUS 'SELESAI' / 'DITERIMA'
+            if (in_array($validatedData['purchase_status'], ['Selesai', 'Diterima'])) {
+                
+                // 3. Simpan ke Tabel Batch (Pecahan Stok + Expired Date)
+                ProductBatches::create([
+                    'branches_id' => $validatedData['branches_id'],
+                    'product_id'  => $itemData['product_id'],
+                    'expiry_date' => $itemData['expiry_date'],
+                    'quantity'    => $itemData['quantity'],
+                    'batch_code'  => 'BATCH-' . time() . '-' . rand(100,999),
                 ]);
 
-                // 3. Tambah stok HANYA jika status pembelian "Selesai" atau "Diterima"
-                if (in_array($validatedData['purchase_status'], ['Selesai', 'Diterima'])) {
-                    // Cari detail produk di cabang ini
-                    $productDetail = ProductDetail::firstOrCreate(
-                        [
-                            'product_id' => $itemData['product_id'],
-                            'branches_id' => $validatedData['branches_id']
-                        ],
-                        [
-                            'purchase_price' => $itemData['unit_price'],
-                            'sales_price' => $itemData['unit_price'] * 1.25, // Atur margin default 25%
-                            'current_stock' => 0,
-                            'status' => 'in_stock'
-                        ]
-                    );
-                    
-                    // Tambah stok yang ada
-                    $productDetail->increment('current_stock', $itemData['quantity']);
-                }
+                // 4. Update Total Stok (Agregat) di ProductDetail
+                $productDetail = ProductDetail::firstOrCreate(
+                    [
+                        'product_id' => $itemData['product_id'],
+                        'branches_id' => $validatedData['branches_id']
+                    ],
+                    [
+                        'purchase_price' => $itemData['unit_price'],
+                        'sales_price' => $itemData['unit_price'] * 1.25, // Default margin
+                        'current_stock' => 0,
+                        'status' => 'in_stock'
+                    ]
+                );
+                
+                // Update harga beli terbaru (opsional, tergantung kebijakan akuntansi)
+                $productDetail->purchase_price = $itemData['unit_price'];
+                
+                // Tambah total stok
+                $productDetail->increment('current_stock', $itemData['quantity']);
+                $productDetail->save();
             }
-            
-            DB::commit();
-
-            return response()->json([
-                'success' => true, 
-                'message' => 'Pengadaan produk berhasil disimpan.', 
-                'data' => $purchase
-            ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'success' => false, 
-                'message' => 'Gagal menyimpan pengadaan produk.', 
-                'error' => $e->getMessage()
-            ], 500);
         }
+        
+        DB::commit();
+
+        return response()->json([
+            'success' => true, 
+            'message' => 'Pengadaan produk berhasil disimpan.', 
+            'data' => $purchase
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'success' => false, 
+            'message' => 'Gagal menyimpan pengadaan produk.', 
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function show(Purchase $purchase)
     {
@@ -199,13 +213,61 @@ class PurchaseController extends Controller
                 }
             } else {
                 // Jika status baru BUKAN 'Selesai'/'Diterima', tetap simpan item baru tanpa menambah stok
+                // PurchaseController.php
+
                 foreach ($validatedData['items'] as $itemData) {
+                    // 1. Simpan Rincian Item Pembelian (History Transaksi)
                     $purchase->items()->create([
                         'product_id' => $itemData['product_id'],
                         'quantity' => $itemData['quantity'],
                         'unit_price' => $itemData['unit_price'],
                         'subtotal' => $itemData['quantity'] * $itemData['unit_price'],
                     ]);
+
+                    // HANYA TAMBAH STOK & UNIT JIKA STATUS 'SELESAI' / 'DITERIMA'
+                    if (in_array($validatedData['purchase_status'], ['Selesai', 'Diterima'])) {
+                        
+                        // 2. Simpan ke Tabel Batch (Pecahan Stok + Expired Date)
+                        $batch = \App\Models\ProductBatches::create([
+                            'branches_id' => $validatedData['branches_id'],
+                            'product_id'  => $itemData['product_id'],
+                            'expiry_date' => $itemData['expiry_date'],
+                            'quantity'    => $itemData['quantity'],
+                            'batch_code'  => 'BATCH-' . time() . '-' . rand(100,999),
+                        ]);
+
+                        // 3. GENERATE UNIT UNIK (KUNCI AGAR TABEL PRODUCT_ITEMS TERISI)
+                        // Kita ambil nama produk untuk kode QR agar mudah dibaca
+                        $product = \App\Models\Product::find($itemData['product_id']);
+                        $productName = $product ? Str::slug($product->name) : 'PROD';
+
+                        for ($i = 0; $i < $itemData['quantity']; $i++) {
+                            \App\Models\ProductItem::create([
+                                'product_id' => $itemData['product_id'],
+                                'branches_id' => $validatedData['branches_id'],
+                                'product_batch_id' => $batch->id,
+                                // Format: NAMA-TGL-RANDOM (Contoh: MEO-20260130-ABC12)
+                                'unique_qr_code' => strtoupper($productName . '-' . date('Ymd') . '-' . Str::random(5)),
+                                'status' => 'Tersedia',
+                            ]);
+                        }
+
+                        // 4. Update Total Stok di ProductDetail
+                        $productDetail = \App\Models\ProductDetail::firstOrCreate(
+                            [
+                                'product_id' => $itemData['product_id'],
+                                'branches_id' => $validatedData['branches_id']
+                            ],
+                            [
+                                'purchase_price' => $itemData['unit_price'],
+                                'sales_price' => $itemData['unit_price'] * 1.25,
+                                'current_stock' => 0,
+                                'status' => 'in_stock'
+                            ]
+                        );
+                        
+                        $productDetail->increment('current_stock', $itemData['quantity']);
+                    }
                 }
             }
 

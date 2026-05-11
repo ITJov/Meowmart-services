@@ -20,6 +20,7 @@ class Product extends Model
         'category_id',
         'brand_id',
         'photo', 
+        'is_active',
     ];
 
     /**
@@ -66,5 +67,9 @@ class Product extends Model
     public function orderItems()
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    public function batches() {
+        return $this->hasMany(ProductBatches::class);
     }
 }

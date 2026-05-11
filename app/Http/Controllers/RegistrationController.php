@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Registration;
 use App\Models\Slot;
+use App\Models\Kandang;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,24 +14,36 @@ class RegistrationController extends Controller
 {
     public function index(Request $request)
     {
-        // DIUBAH: Tambahkan validasi untuk branches_id
         $request->validate([
             'branches_id' => 'required|integer|exists:branches,id',
             'status' => 'nullable|string',
             'search' => 'nullable|string',
+            'registration_type' => 'nullable|string', 
         ]);
 
-        // DIUBAH: Filter query berdasarkan branches_id
         $query = Registration::with(['customer', 'pet', 'slot', 'service'])
                              ->where('branches_id', $request->branches_id);
 
+        if ($request->filled('registration_type')) {
+            $query->where('registration_type', $request->registration_type);
+        }
+        
         if ($request->filled('status')) {
-            // Kita hanya memfilter berdasarkan status yang ada di tab: Terjadwal, Selesai, Batal
             $query->where('status', $request->status);
         }
 
+        if ($request->has('exclude_statuses') && is_array($request->exclude_statuses)) {
+            $query->whereNotIn('status', $request->exclude_statuses);
+        }
+
         if ($request->filled('search')) {
-            $query->where('booking_id', 'like', '%' . $request->search . '%');
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('booking_id', 'like', '%' . $search . '%')
+                  ->orWhereHas('customer', function($c) use ($search) {
+                      $c->where('name', 'like', '%' . $search . '%');
+                  });
+            });
         }
 
         $registrations = $query->latest('id')->paginate(10);
@@ -48,7 +61,9 @@ class RegistrationController extends Controller
             
             'service_id' => 'required|integer|exists:services,id', 
             'registration_type' => 'required|string|max:255', 
-            
+            'kandang_id' => 'nullable|integer|exists:kandangs,id', 
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'status' => 'required|string|max:255',
             'notes' => 'nullable|string',
             'branches_id' => 'required|integer|exists:branches,id',
@@ -75,16 +90,25 @@ class RegistrationController extends Controller
         }
     }
 
+    /**
+ * Menampilkan detail satu data registrasi.
+ */
+    public function show(Registration $registration)
+    {
+        // Muat relasi lengkap agar frontend bisa menampilkan nama customer, hewan, dan jasa
+        return response()->json([
+            'success' => true,
+            'data' => $registration->load(['customer', 'pet', 'service', 'kandang'])
+        ]);
+    }
     // ------------------------------------------------------------------
 
-    public function getCounts(Request $request)
+    public function Counts(Request $request)
     {
         $request->validate([
             'branches_id' => 'required|integer|exists:branches,id',
         ]);
 
-        // NOTE: Count harus menghitung semua status yang ada di database,
-        // meskipun tab di frontend tidak menampilkannya (misal 'Menunggu Pembayaran').
         $counts = Registration::where('branches_id', $request->branches_id)
             ->select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
@@ -98,7 +122,6 @@ class RegistrationController extends Controller
     public function updateStatus(Request $request, Registration $registration)
     {
         $validated = $request->validate([
-            // PERBAIKAN UTAMA: Hanya status yang visible atau final yang diizinkan dari UI ini.
             'status' => ['required', 'string', Rule::in(['Selesai', 'Batal'])]
         ]);
 

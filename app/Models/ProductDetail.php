@@ -53,4 +53,13 @@ class ProductDetail extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    public function batches() {
+        return $this->hasMany(ProductBatches::class);
+    }
+
+    public function branch()
+    {
+        return $this->belongsTo(Branch::class, 'branches_id');
+    }
 }

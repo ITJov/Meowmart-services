@@ -21,9 +21,10 @@ class PetHotelController extends Controller
         $query = Registration::with(['customer', 'pet'])
             ->where('branches_id', $request->branches_id)
             ->where('registration_type', 'Pet Hotel')
-            // Opsi: Anda bisa tambahkan filter status, misal hanya yang 'Check-in'
-            // ->where('status', 'Check-in') 
-            ;
+            ->select('id', 'customer_id', 'pet_id', 'status', 'start_date', 'end_date', 'kandang_id');
+
+        // 🚀 PERBAIKAN: Secara default hanya tampilkan yang sedang berjalan/akan datang
+        $query->whereNotIn('status', ['Selesai', 'Batal']);
 
         if ($request->filled('search')) {
             // Pencarian bisa berdasarkan nama hewan atau nama customer
@@ -35,10 +36,11 @@ class PetHotelController extends Controller
                 });
             });
         }
-
-        if ($request->has('status_group') && $request->status_group == 'active') {
-        $query->whereNotIn('status', ['Check-Out', 'Selesai']);
-    }
+        
+        // Logika untuk status_group yang tidak lagi diperlukan, dihapus atau dinonaktifkan
+        // if ($request->has('status_group') && $request->status_group == 'active') {
+        //     $query->whereNotIn('status', ['Check-Out', 'Selesai']);
+        // }
 
         $registrations = $query->latest('created_at')->paginate(10);
 
@@ -56,7 +58,8 @@ class PetHotelController extends Controller
 
         // Validasi input
         $data = $request->validate([
-            'status' => 'sometimes|string|in:Check-In,Check-Out,Selesai,Batal',
+            // Status yang diizinkan untuk update, termasuk Check-in
+            'status' => 'sometimes|string|in:Check-in,Selesai,Batal',
             'check_out_date' => 'sometimes|date'
         ]);
 
